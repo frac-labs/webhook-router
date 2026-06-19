@@ -16,7 +16,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/frac-labs/webhook-router/internal/fanout"
 	"github.com/frac-labs/webhook-router/internal/hmacverify"
+	"github.com/frac-labs/webhook-router/internal/normalize"
+	"github.com/frac-labs/webhook-router/internal/subscribers"
 )
 
 // Config bundles dependencies required at server construction.
@@ -38,8 +41,9 @@ type Config struct {
 
 // Server is the webhook-router HTTP server.
 type Server struct {
-	cfg Config
-	mux *http.ServeMux
+	cfg        Config
+	mux        *http.ServeMux
+	dispatcher *fanout.Dispatcher
 }
 
 // New constructs a Server. Returns an error if config is structurally invalid.
@@ -50,7 +54,16 @@ func New(cfg Config) (*Server, error) {
 	if cfg.GitHubSecret == "" {
 		cfg.GitHubSecret = os.Getenv("GITHUB_WEBHOOK_SECRET")
 	}
-	s := &Server{cfg: cfg, mux: http.NewServeMux()}
+	subs, err := subscribers.Load(cfg.SubscribersPath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Logger.Info("subscribers loaded", "path", cfg.SubscribersPath, "count", len(subs.Subscribers))
+	s := &Server{
+		cfg:        cfg,
+		mux:        http.NewServeMux(),
+		dispatcher: fanout.New(subs.Subscribers, cfg.Logger),
+	}
 	s.routes()
 	return s, nil
 }
@@ -112,14 +125,27 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("invalid signature\n"))
 		return
 	}
-	// Verified. Real fan-out lands in PR-4b; for now log + 501.
-	s.cfg.Logger.Info("github webhook verified (stub)",
-		"event", r.Header.Get("X-GitHub-Event"),
+	// Verified. Normalize + fan out.
+	eventHeader := r.Header.Get("X-GitHub-Event")
+	ev, err := normalize.GitHub(eventHeader, body)
+	if err != nil {
+		s.cfg.Logger.Warn("github webhook normalize failed",
+			"event", eventHeader, "err", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("could not parse webhook body\n"))
+		return
+	}
+	attempts := s.dispatcher.Dispatch(r.Context(), ev)
+	s.cfg.Logger.Info("github webhook verified",
+		"event", ev.EventName(),
 		"delivery", r.Header.Get("X-GitHub-Delivery"),
+		"actor", ev.Actor,
+		"target", ev.Target,
 		"bytes", len(body),
+		"fanout_attempts", attempts,
 	)
-	w.WriteHeader(http.StatusNotImplemented)
-	_, _ = w.Write([]byte("webhook-router PR-4a: signature ok, handler not yet implemented\n"))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 // safePrefix returns at most the first 12 chars of s for safe logging.
