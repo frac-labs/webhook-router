@@ -65,7 +65,7 @@ func TestGithubMismatch_401(t *testing.T) {
 	}
 }
 
-func TestGithubValid_501(t *testing.T) {
+func TestGithubValid_200(t *testing.T) {
 	s, _ := New(Config{GitHubSecret: "topsecret"})
 	body := []byte(`{"action":"opened","number":1}`)
 	req := httptest.NewRequest(http.MethodPost, "/webhook/github", bytes.NewReader(body))
@@ -74,8 +74,8 @@ func TestGithubValid_501(t *testing.T) {
 	req.Header.Set("X-GitHub-Delivery", "test-deliv-001")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("want 501, got %d (body=%q)", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (body=%q)", rec.Code, rec.Body.String())
 	}
 }
 
