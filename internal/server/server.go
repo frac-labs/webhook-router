@@ -1,12 +1,11 @@
 // Package server wires the webhook-router HTTP handlers.
 //
-// v0.2.0 (PR-4a): the /webhook/github endpoint now verifies the
-// X-Hub-Signature-256 HMAC against a per-app shared secret loaded from
-// the GITHUB_WEBHOOK_SECRET env var. Verified payloads still return 501
-// (real handler bodies land in PR-4b); malformed/mismatched/missing
-// signatures return 401.
+// v0.3.0 (PR-4c): /webhook/plane joins /webhook/github as fully verified
+// and fanned out. Plane signs with HMAC-SHA256 in X-Plane-Signature
+// (raw hex, no prefix); secret from PLANE_WEBHOOK_SECRET. 503 if secret
+// unset, 401 on missing/malformed/mismatch, 200 on verify-OK.
 //
-// Plane and Mattermost remain 501 stubs.
+// Mattermost remains a 501 stub.
 package server
 
 import (
@@ -37,6 +36,11 @@ type Config struct {
 	// secret is unset returns 503 (deliberately distinct from 401) so
 	// misconfiguration is loud.
 	GitHubSecret string
+
+	// PlaneSecret is the shared secret used to verify Plane webhook
+	// X-Plane-Signature headers. If empty, New reads PLANE_WEBHOOK_SECRET
+	// from the environment. Same 503-on-missing convention as GitHub.
+	PlaneSecret string
 }
 
 // Server is the webhook-router HTTP server.
@@ -53,6 +57,9 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.GitHubSecret == "" {
 		cfg.GitHubSecret = os.Getenv("GITHUB_WEBHOOK_SECRET")
+	}
+	if cfg.PlaneSecret == "" {
+		cfg.PlaneSecret = os.Getenv("PLANE_WEBHOOK_SECRET")
 	}
 	subs, err := subscribers.Load(cfg.SubscribersPath)
 	if err != nil {
@@ -75,8 +82,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/healthz", s.healthz)
 	s.mux.HandleFunc("/readyz", s.readyz)
 	s.mux.HandleFunc("/webhook/github", s.githubWebhook)
-	// Plane and Mattermost stay 501 stubs in PR-4a; HMAC shape lands in PR-4b.
-	s.mux.HandleFunc("/webhook/plane", s.notImplemented("plane"))
+	s.mux.HandleFunc("/webhook/plane", s.planeWebhook)
+	// Mattermost remains a 501 stub.
 	s.mux.HandleFunc("/webhook/mattermost", s.notImplemented("mattermost"))
 }
 
@@ -162,4 +169,58 @@ func (s *Server) notImplemented(source string) http.HandlerFunc {
 		w.WriteHeader(http.StatusNotImplemented)
 		_, _ = w.Write([]byte("webhook-router v0.2.0: handler not implemented\n"))
 	}
+}
+
+func (s *Server) planeWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.PlaneSecret == "" {
+		s.cfg.Logger.Error("plane webhook hit but secret not configured")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("plane webhook secret not configured\n"))
+		return
+	}
+	// Cap body at 5 MiB — Plane payloads are tiny vs GitHub.
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 5<<20))
+	if err != nil {
+		s.cfg.Logger.Warn("plane webhook body read failed", "err", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	sig := r.Header.Get("X-Plane-Signature")
+	if err := hmacverify.VerifyPlane(s.cfg.PlaneSecret, sig, body); err != nil {
+		switch {
+		case errors.Is(err, hmacverify.ErrMissingHeader):
+			s.cfg.Logger.Info("plane webhook missing signature", "ua", r.Header.Get("User-Agent"))
+		case errors.Is(err, hmacverify.ErrMalformedHeader):
+			s.cfg.Logger.Warn("plane webhook malformed signature", "sig_prefix", safePrefix(sig))
+		case errors.Is(err, hmacverify.ErrMismatch):
+			s.cfg.Logger.Warn("plane webhook signature mismatch", "delivery", r.Header.Get("X-Plane-Delivery"))
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("invalid signature\n"))
+		return
+	}
+	ev, err := normalize.Plane(body)
+	if err != nil {
+		s.cfg.Logger.Warn("plane webhook normalize failed",
+			"event", r.Header.Get("X-Plane-Event"), "err", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("could not parse webhook body\n"))
+		return
+	}
+	attempts := s.dispatcher.Dispatch(r.Context(), ev)
+	s.cfg.Logger.Info("plane webhook verified",
+		"event", ev.EventName(),
+		"delivery", r.Header.Get("X-Plane-Delivery"),
+		"actor", ev.Actor,
+		"target", ev.Target,
+		"bytes", len(body),
+		"fanout_attempts", attempts,
+	)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }

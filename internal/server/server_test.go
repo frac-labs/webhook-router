@@ -89,12 +89,65 @@ func TestGithubGet_405(t *testing.T) {
 	}
 }
 
-func TestPlaneStillStub_501(t *testing.T) {
+func planeSig(secret string, body []byte) string {
+	m := hmac.New(sha256.New, []byte(secret))
+	m.Write(body)
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+func TestPlaneNoSecret_503(t *testing.T) {
+	t.Setenv("PLANE_WEBHOOK_SECRET", "")
 	s, _ := New(Config{})
-	req := httptest.NewRequest(http.MethodPost, "/webhook/plane", nil)
+	req := httptest.NewRequest(http.MethodPost, "/webhook/plane", bytes.NewReader([]byte(`{}`)))
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("want 501, got %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d", rec.Code)
+	}
+}
+
+func TestPlaneMissingSig_401(t *testing.T) {
+	s, _ := New(Config{PlaneSecret: "topsecret"})
+	req := httptest.NewRequest(http.MethodPost, "/webhook/plane", bytes.NewReader([]byte(`{}`)))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", rec.Code)
+	}
+}
+
+func TestPlaneMismatch_401(t *testing.T) {
+	s, _ := New(Config{PlaneSecret: "topsecret"})
+	body := []byte(`{"event":"issue","action":"create"}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhook/plane", bytes.NewReader(body))
+	req.Header.Set("X-Plane-Signature", planeSig("wrong", body))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", rec.Code)
+	}
+}
+
+func TestPlaneValid_200(t *testing.T) {
+	s, _ := New(Config{PlaneSecret: "topsecret"})
+	body := []byte(`{"event":"issue","action":"create","workspace_slug":"frac","data":{"name":"hello"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhook/plane", bytes.NewReader(body))
+	req.Header.Set("X-Plane-Signature", planeSig("topsecret", body))
+	req.Header.Set("X-Plane-Delivery", "test-deliv-001")
+	req.Header.Set("X-Plane-Event", "issue")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (body=%q)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPlaneGet_405(t *testing.T) {
+	s, _ := New(Config{PlaneSecret: "x"})
+	req := httptest.NewRequest(http.MethodGet, "/webhook/plane", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("want 405, got %d", rec.Code)
 	}
 }
