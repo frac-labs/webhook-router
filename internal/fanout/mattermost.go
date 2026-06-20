@@ -55,7 +55,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, ev normalize.Event) int {
 	var wg sync.WaitGroup
 	attempts := 0
 	for _, s := range d.subs {
-		if !s.Matches(name) {
+		if !s.Matches(ev.Source, name) {
 			continue
 		}
 		attempts++

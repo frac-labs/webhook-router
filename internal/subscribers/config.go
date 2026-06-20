@@ -9,7 +9,8 @@ type Subscriber struct {
 	Name   string   `yaml:"name"`
 	Kind   string   `yaml:"kind"`   // mattermost | plane | hermes | frac
 	URL    string   `yaml:"url"`    // target endpoint (or in-cluster svc)
-	Events []string `yaml:"events"` // event-name glob list
+	Source string   `yaml:"source"` // optional event-source filter (e.g. "github", "plane"); empty = match-any (back-compat)
+	Events []string `yaml:"events"` // event-name glob list (filepath.Match against dotted EventName)
 }
 
 // Config is the top-level subscribers.yaml shape.
