@@ -69,8 +69,31 @@ func TestMatch(t *testing.T) {
 		"push":                  false,
 	}
 	for ev, want := range cases {
-		if got := s.Matches(ev); got != want {
-			t.Errorf("Matches(%q) = %v, want %v", ev, got, want)
+		// empty Source on subscriber = match-any (back-compat)
+		if got := s.Matches("github", ev); got != want {
+			t.Errorf("Matches(\"github\", %q) = %v, want %v", ev, got, want)
 		}
+	}
+}
+
+func TestMatchSourceFilter(t *testing.T) {
+	gh := Subscriber{Source: "github", Events: []string{"*"}}
+	pl := Subscriber{Source: "plane", Events: []string{"*"}}
+	any := Subscriber{Events: []string{"*"}} // back-compat: no Source
+
+	if !gh.Matches("github", "push") {
+		t.Error("github subscriber should match github event")
+	}
+	if gh.Matches("plane", "issue.created") {
+		t.Error("github subscriber MUST NOT match plane event")
+	}
+	if !pl.Matches("plane", "issue.created") {
+		t.Error("plane subscriber should match plane event")
+	}
+	if pl.Matches("github", "push") {
+		t.Error("plane subscriber MUST NOT match github event")
+	}
+	if !any.Matches("github", "push") || !any.Matches("plane", "issue.created") {
+		t.Error("empty-Source subscriber must match any source (back-compat)")
 	}
 }
