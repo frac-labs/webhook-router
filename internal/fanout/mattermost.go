@@ -80,6 +80,10 @@ func (d *Dispatcher) fire(ctx context.Context, s subscribers.Subscriber, ev norm
 	switch s.Kind {
 	case "mattermost":
 		return d.fireMattermost(ctx, s, ev)
+	case "plane_issue_mirror":
+		return d.firePlaneIssueMirror(ctx, s, ev)
+	case "github_issue_mirror":
+		return d.fireGitHubIssueMirror(ctx, s, ev)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnsupported, s.Kind)
 	}
