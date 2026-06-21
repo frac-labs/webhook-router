@@ -59,6 +59,82 @@ func TestLoad_MissingFields(t *testing.T) {
 	}
 }
 
+func TestLoad_PlaneIssueMirror_NoURL(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "plane.yaml")
+	if err := os.WriteFile(p, []byte(`subscribers:
+  - name: gh-to-plane-mirror
+    kind: plane_issue_mirror
+    events: ["issues.opened"]
+    source: github
+    plane_workspace_slug: frac-labs
+    plane_project_id: 00000000-0000-0000-0000-000000000000
+    plane_api_key_env: PLANE_API_KEY
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("plane_issue_mirror without URL must load: %v", err)
+	}
+	if len(cfg.Subscribers) != 1 || cfg.Subscribers[0].Kind != "plane_issue_mirror" {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestLoad_PlaneIssueMirror_MissingFields(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "plane-bad.yaml")
+	if err := os.WriteFile(p, []byte(`subscribers:
+  - name: gh-to-plane-mirror
+    kind: plane_issue_mirror
+    events: ["issues.opened"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected validate error for missing plane fields")
+	}
+}
+
+func TestLoad_GitHubIssueMirror_NoURL(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "gh.yaml")
+	if err := os.WriteFile(p, []byte(`subscribers:
+  - name: plane-to-gh-mirror
+    kind: github_issue_mirror
+    events: ["issue.created"]
+    source: plane
+    github_repo: frac-labs/clawdiovascular
+    github_token_env: GH_TOKEN
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("github_issue_mirror without URL must load: %v", err)
+	}
+	if len(cfg.Subscribers) != 1 || cfg.Subscribers[0].Kind != "github_issue_mirror" {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestLoad_GitHubIssueMirror_MissingFields(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "gh-bad.yaml")
+	if err := os.WriteFile(p, []byte(`subscribers:
+  - name: plane-to-gh-mirror
+    kind: github_issue_mirror
+    events: ["issue.created"]
+    github_repo: frac-labs/clawdiovascular
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil {
+		t.Fatal("expected validate error for missing github_token_env")
+	}
+}
+
 func TestMatch(t *testing.T) {
 	s := Subscriber{Events: []string{"issues.*", "pull_request.opened"}}
 	cases := map[string]bool{
