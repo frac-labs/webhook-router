@@ -47,8 +47,19 @@ func (c Config) Validate() error {
 		if s.Kind == "" {
 			return fmt.Errorf("subscriber[%s]: kind required", s.Name)
 		}
-		if s.URL == "" {
-			return fmt.Errorf("subscriber[%s]: url required", s.Name)
+		switch s.Kind {
+		case "plane_issue_mirror":
+			if s.PlaneWorkspaceSlug == "" || s.PlaneProjectID == "" || s.PlaneAPIKeyEnv == "" {
+				return fmt.Errorf("subscriber[%s]: plane_workspace_slug, plane_project_id, and plane_api_key_env all required for plane_issue_mirror", s.Name)
+			}
+		case "github_issue_mirror":
+			if s.GitHubRepo == "" || s.GitHubTokenEnv == "" {
+				return fmt.Errorf("subscriber[%s]: github_repo and github_token_env both required for github_issue_mirror", s.Name)
+			}
+		default:
+			if s.URL == "" {
+				return fmt.Errorf("subscriber[%s]: url required", s.Name)
+			}
 		}
 		if len(s.Events) == 0 {
 			return fmt.Errorf("subscriber[%s]: at least one event glob required", s.Name)
