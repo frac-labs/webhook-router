@@ -13,9 +13,11 @@ type Subscriber struct {
 	Events []string `yaml:"events"` // event-name glob list (filepath.Match against dotted EventName)
 
 	// PR-1 (cdv#16): issue-mirror fields. All omitempty for back-compat.
-	PlaneWorkspaceSlug string `yaml:"plane_workspace_slug,omitempty"`
-	PlaneProjectID     string `yaml:"plane_project_id,omitempty"`
-	PlaneAPIKeyEnv     string `yaml:"plane_api_key_env,omitempty"` // env var holding X-API-Key
+	PlaneWorkspaceSlug    string `yaml:"plane_workspace_slug,omitempty"`
+	PlaneWorkspaceSlugEnv string `yaml:"plane_workspace_slug_env,omitempty"` // env var holding workspace slug (alt to literal)
+	PlaneProjectID        string `yaml:"plane_project_id,omitempty"`
+	PlaneProjectIDEnv     string `yaml:"plane_project_id_env,omitempty"` // env var holding project id (alt to literal)
+	PlaneAPIKeyEnv        string `yaml:"plane_api_key_env,omitempty"`     // env var holding X-API-Key
 	GitHubRepo         string `yaml:"github_repo,omitempty"`       // owner/repo
 	GitHubTokenEnv     string `yaml:"github_token_env,omitempty"`  // env var holding GitHub token
 	MarkerPrefix       string `yaml:"marker_prefix,omitempty"`     // default "<!--webhook-router:mirror "
@@ -32,6 +34,30 @@ func (s Subscriber) EffectiveMarkerPrefix() string {
 		return s.MarkerPrefix
 	}
 	return DefaultMarkerPrefix
+}
+
+// ResolvedPlaneWorkspaceSlug returns the literal value if set, else the value of
+// the configured env var. Empty string if neither resolves.
+func (s Subscriber) ResolvedPlaneWorkspaceSlug(getenv func(string) string) string {
+	if s.PlaneWorkspaceSlug != "" {
+		return s.PlaneWorkspaceSlug
+	}
+	if s.PlaneWorkspaceSlugEnv != "" {
+		return getenv(s.PlaneWorkspaceSlugEnv)
+	}
+	return ""
+}
+
+// ResolvedPlaneProjectID returns the literal value if set, else the value of
+// the configured env var. Empty string if neither resolves.
+func (s Subscriber) ResolvedPlaneProjectID(getenv func(string) string) string {
+	if s.PlaneProjectID != "" {
+		return s.PlaneProjectID
+	}
+	if s.PlaneProjectIDEnv != "" {
+		return getenv(s.PlaneProjectIDEnv)
+	}
+	return ""
 }
 
 // Config is the top-level subscribers.yaml shape.

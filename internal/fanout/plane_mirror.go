@@ -29,8 +29,10 @@ func (d *Dispatcher) firePlaneIssueMirror(ctx context.Context, s subscribers.Sub
 		d.logger.Info("mirror loop-skip", "subscriber", s.Name, "direction", "gh->plane")
 		return nil
 	}
-	if s.PlaneWorkspaceSlug == "" || s.PlaneProjectID == "" || s.PlaneAPIKeyEnv == "" {
-		return fmt.Errorf("plane_issue_mirror %s: missing plane_workspace_slug/plane_project_id/plane_api_key_env", s.Name)
+	wsSlug := s.ResolvedPlaneWorkspaceSlug(os.Getenv)
+	projID := s.ResolvedPlaneProjectID(os.Getenv)
+	if wsSlug == "" || projID == "" || s.PlaneAPIKeyEnv == "" {
+		return fmt.Errorf("plane_issue_mirror %s: missing plane_workspace_slug(_env)/plane_project_id(_env)/plane_api_key_env", s.Name)
 	}
 	apiKey := os.Getenv(s.PlaneAPIKeyEnv)
 	if apiKey == "" {
@@ -42,7 +44,7 @@ func (d *Dispatcher) firePlaneIssueMirror(ctx context.Context, s subscribers.Sub
 
 	base := strings.TrimRight(s.URL, "/")
 	listURL := fmt.Sprintf("%s/api/v1/workspaces/%s/work-items/search/?search=%s&project_id=%s&limit=5",
-		base, s.PlaneWorkspaceSlug, url.QueryEscape(marker), s.PlaneProjectID)
+		base, wsSlug, url.QueryEscape(marker), projID)
 
 	existingID, err := planeFindByMarker(ctx, d.client, listURL, apiKey, marker)
 	if err != nil {
@@ -57,11 +59,11 @@ func (d *Dispatcher) firePlaneIssueMirror(ctx context.Context, s subscribers.Sub
 
 	if existingID != "" {
 		patchURL := fmt.Sprintf("%s/api/v1/workspaces/%s/projects/%s/work-items/%s/",
-			base, s.PlaneWorkspaceSlug, s.PlaneProjectID, existingID)
+			base, wsSlug, projID, existingID)
 		return planeJSON(ctx, d.client, http.MethodPatch, patchURL, apiKey, payload)
 	}
 	createURL := fmt.Sprintf("%s/api/v1/workspaces/%s/projects/%s/work-items/",
-		base, s.PlaneWorkspaceSlug, s.PlaneProjectID)
+		base, wsSlug, projID)
 	return planeJSON(ctx, d.client, http.MethodPost, createURL, apiKey, payload)
 }
 
