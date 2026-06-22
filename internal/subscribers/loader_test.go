@@ -152,6 +152,42 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+func TestLoad_PlaneIssueMirror_EnvVarFields(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "plane-env.yaml")
+	if err := os.WriteFile(p, []byte(`subscribers:
+  - name: gh-to-plane-mirror
+    kind: plane_issue_mirror
+    events: ["issues.opened"]
+    source: github
+    plane_workspace_slug_env: PLANE_WORKSPACE_SLUG
+    plane_project_id_env: PLANE_PROJECT_ID
+    plane_api_key_env: PLANE_PAT
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("plane_issue_mirror with _env fields must load: %v", err)
+	}
+	if len(cfg.Subscribers) != 1 {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	s := cfg.Subscribers[0]
+	if s.PlaneWorkspaceSlugEnv != "PLANE_WORKSPACE_SLUG" || s.PlaneProjectIDEnv != "PLANE_PROJECT_ID" {
+		t.Fatalf("env fields not parsed: %+v", s)
+	}
+	getenv := func(k string) string {
+		return map[string]string{"PLANE_WORKSPACE_SLUG": "frac-labs", "PLANE_PROJECT_ID": "proj-uuid"}[k]
+	}
+	if got := s.ResolvedPlaneWorkspaceSlug(getenv); got != "frac-labs" {
+		t.Errorf("ResolvedPlaneWorkspaceSlug = %q, want frac-labs", got)
+	}
+	if got := s.ResolvedPlaneProjectID(getenv); got != "proj-uuid" {
+		t.Errorf("ResolvedPlaneProjectID = %q, want proj-uuid", got)
+	}
+}
+
 func TestMatchSourceFilter(t *testing.T) {
 	gh := Subscriber{Source: "github", Events: []string{"*"}}
 	pl := Subscriber{Source: "plane", Events: []string{"*"}}

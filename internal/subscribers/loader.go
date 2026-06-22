@@ -49,8 +49,10 @@ func (c Config) Validate() error {
 		}
 		switch s.Kind {
 		case "plane_issue_mirror":
-			if s.PlaneWorkspaceSlug == "" || s.PlaneProjectID == "" || s.PlaneAPIKeyEnv == "" {
-				return fmt.Errorf("subscriber[%s]: plane_workspace_slug, plane_project_id, and plane_api_key_env all required for plane_issue_mirror", s.Name)
+			hasSlug := s.PlaneWorkspaceSlug != "" || s.PlaneWorkspaceSlugEnv != ""
+			hasProj := s.PlaneProjectID != "" || s.PlaneProjectIDEnv != ""
+			if !hasSlug || !hasProj || s.PlaneAPIKeyEnv == "" {
+				return fmt.Errorf("subscriber[%s]: plane_workspace_slug(_env), plane_project_id(_env), and plane_api_key_env all required for plane_issue_mirror", s.Name)
 			}
 		case "github_issue_mirror":
 			if s.GitHubRepo == "" || s.GitHubTokenEnv == "" {
